@@ -1,0 +1,172 @@
+USE [master]
+GO
+/****** Object:  StoredProcedure [dbo].[spDropRoleSchemaUsers80]    Script Date: 3/23/2023 9:34:35 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+	ALTER PROCEDURE [dbo].[spDropRoleSchemaUsers80]
+	 @argDBNAME VARCHAR(128),
+	 @argLOGINNAME NVARCHAR(MAX)
+	AS
+
+	BEGIN
+
+
+
+	DECLARE @s VARCHAR(MAX)
+	 SET @s = (SELECT CONCAT(' ''', value, ''' ')+',' FROM STRING_SPLIT(@argLOGINNAME,',') FOR XML PATH(''))
+
+	 SET @s =  TRIM(LEFT(@S,(LEN(@S)-1)))
+
+
+
+
+	DROP TABLE IF EXISTS #tableSRU;
+	CREATE TABLE #tableSRU
+	(
+		NAME VARCHAR(100),
+		TYPE VARCHAR(2)
+	);
+
+	DECLARE @lcSQL NVARCHAR(2000);
+
+
+	SET @lcSQL
+		= N'USE ' + QUOTENAME(@argDBNAME) + N';  SELECT name,type FROM sys.database_principals WHERE NAME NOT IN ('+ @s +') ORDER BY TYPE DESC ';
+
+	INSERT INTO #tableSRU
+	EXEC (@lcSQL);
+
+	SET @lcSQL = N'USE ' + QUOTENAME(@argDBNAME) + N';  SELECT name,''A'' AS type FROM  sys.SCHEMAS';
+	INSERT INTO #tableSRU
+	EXEC (@lcSQL);
+
+
+	DECLARE @name VARCHAR(128),
+			@type VARCHAR(2);
+	DECLARE curCursorName CURSOR LOCAL FAST_FORWARD READ_ONLY FOR
+	SELECT NAME,
+		   TYPE
+	FROM #tableSRU 
+	ORDER BY TYPE ASC;
+
+
+
+	OPEN curCursorName;
+	FETCH NEXT FROM curCursorName
+	INTO @name,
+		 @type;
+	WHILE @@FETCH_STATUS = 0
+	BEGIN
+
+
+
+		DECLARE @ASQL NVARCHAR(max);
+		BEGIN TRY
+
+			IF @type = 'A' -- 
+			BEGIN
+
+				SET @ASQL = N'    USE ' + QUOTENAME(@argDBNAME) + N' 
+			'   ;
+				SET @ASQL += N'; DROP SCHEMA ' + QUOTENAME(@name) + N'  ';
+
+				EXECUTE sp_executesql @ASQL;
+			END;
+
+
+
+
+			IF @type = 'R'
+			BEGIN
+		
+			DECLARE @RoleName VARCHAR(4000)
+
+				 SET @ASQL = N'    USE ' + QUOTENAME(@argDBNAME) + N' 
+			'   ;
+
+			   SET @ASQL += '
+				 DECLARE @RoleName sysname
+			   set @RoleName ='''+@name+'''
+		   
+	IF @RoleName <> ''public'' and (select is_fixed_role from sys.database_principals where name = ''' + @name+ '''  ) = 0
+	BEGIN
+ 
+		DECLARE @RoleMemberName sysname
+		DECLARE Member_Cursor CURSOR FOR
+	   select name
+		from sys.database_principals 
+		where principal_id in ( 
+			select member_principal_id
+			from sys.database_role_members
+			where role_principal_id in (
+				select principal_id
+				FROM sys.database_principals where name = '''+@NAME+''' AND type = ''R'')) 
+			 
+		OPEN Member_Cursor;
+
+		FETCH NEXT FROM Member_Cursor
+		into @RoleMemberName
+    
+		DECLARE @SQL NVARCHAR(4000)
+	
+		WHILE @@FETCH_STATUS = 0
+		BEGIN
+       
+			SET @SQL =	''   ALTER ROLE '+ QUOTENAME(@name) +'  DROP MEMBER    ''
+			set @SQL +=QUOTENAME(@RoleMemberName)
+		
+        		EXECUTE sp_executesql @SQL
+		  print ''gecti''
+			FETCH NEXT FROM Member_Cursor
+			into @RoleMemberName
+		END;
+
+		CLOSE Member_Cursor;
+		DEALLOCATE Member_Cursor;
+	END
+	DROP ROLE ' + QUOTENAME(@name) + '
+   
+			   ';
+			EXECUTE sp_executesql @ASQL
+			END
+
+
+
+			IF @type IN ( 'U', 'S' )
+			BEGIN
+
+				SET @ASQL = N'    USE ' + QUOTENAME(@argDBNAME) + N' 
+			'   ;
+				SET @ASQL += N'; DROP USER ' + QUOTENAME(@name) + N'  ';
+
+				EXECUTE sp_executesql @ASQL;
+
+
+			END;
+
+
+     
+       
+		END TRY
+		BEGIN CATCH
+
+			PRINT ERROR_MESSAGE();
+			PRINT ERROR_LINE();
+		END CATCH;
+
+
+
+
+
+
+		FETCH NEXT FROM curCursorName
+		INTO @name,
+			 @type;
+	END;
+	CLOSE curCursorName;
+	DEALLOCATE curCursorName;
+
+	END
+
